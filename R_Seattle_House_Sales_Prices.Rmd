@@ -1,0 +1,828 @@
+---
+title: "Devoir_E_CHAUVET_DUBAUT"
+subtitle: "**Etude de la base de données BDD_data**"
+author: "CHAUVET Benjamin & DUBAUT Damien"
+date : " "
+lang: fr
+header-includes: \usepackage{float}
+output:
+  html_document:
+    toc: yes
+    toc_float: true
+    number_section: false
+    theme : lumen
+    df_print: paged
+    dev : png
+  pdf_document:
+    dev: tikz
+    df_print: kable
+    keep_tex: yes
+    number_section: yes
+    toc: yes
+
+---
+
+```{r setup, echo = FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, fig.align="center")
+```
+
+```{r package}
+library(data.table)
+library(kableExtra)
+library(knitr)
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+library(corrplot)
+library(lmtest)
+library(ggcorrplot)
+library(ggpubr)
+library(GGally)
+```
+
+```{r}
+data <- read.csv("~/BDD_data.csv", quote=",")
+```
+
+```{r}
+data <- data[,-1]
+```
+
+On retire la variable **id**
+
+# **Introduction**
+
+## Présentation de la base de données
+
+Notre base de données contient 21 613 observations sur la vente de maisons entre 2014 et 2015, elle contient ici 20 variables :
+
+1. **date**: Date house was sold
+2. **price**: Price of the sold house
+3. **bedrooms**: Number of Bedrooms
+4. **bathrooms**: Number of bathrooms
+5. **sqft_living**: Square footage of the living space
+6. **sqrt_lot**: Square footage of the lot
+7. **floors**: Total floors in the house
+8. **waterfront**: Whether the house is on a waterfront(1: yes, 0: no)
+9. **view**: special view?
+10. **condition**: Condition of the house
+11. **grade**: unknown
+12. **sqft_above**: Square footage of house apart from basement
+13. **sqft_basement**: Square footage of the basement
+14. **yr_built**: Built year
+15. **yr_renovated**: Year when the house was renovated
+16. **zipcode**: zipcode of the house
+17. **lat**: Latitude coordinate
+18. **long** Longitude coordinate
+19. **sqft_living15**: Living room area in 2015(implies some renovations)
+20. **sqrt_lot15**: Lot area in 2015(implies some renovations)
+
+```{r}
+str(data)
+```
+
+Nous recodons les variables character en facteurs :
+
+```{r}
+data$date<-as.factor(data$date)
+data$date<-as.numeric(data$date)
+
+data$floors<-as.factor(data$floors)
+data$floors<-as.numeric(data$floors)
+data$floors[data$floors==2] <- 1.5
+data$floors[data$floors==3] <- 2
+data$floors[data$floors==4] <- 2.5
+data$floors[data$floors==5] <- 3
+data$floors[data$floors==6] <- 3.5
+
+data$zipcode<-as.factor(data$zipcode)
+data$zipcode<-as.numeric(data$zipcode)
+
+data$sqft_lot15<-as.factor(data$sqft_lot15)
+data$sqft_lot15<-as.numeric(data$sqft_lot15)
+```
+
+
+
+## Situation temporelle de l'étude
+
+La vente des maisons a eu lieu en 2014 et 2015.
+
+Regardons les années de construction des maisons de cette base de données :
+
+```{r}
+summary(data$yr_built)
+
+ggplot(data, aes(x=yr_built))+
+  geom_histogram(breaks=seq(1900, 2015, by=1), aes(fill=..count..))+
+  scale_fill_gradient("Count", low="green", high="red")
+```
+
+Les années de construction des maisons s'étendent de 1900 à 2015 avec une forte concentration à partir des années 2000 et particulièrement en 2014.
+
+```{r}
+mean(data$yr_renovated==0)
+mean(data$yr_renovated!=0)
+```
+On remarque que seulement 4% des maisons de la base de données ont été rénovées. Cette variable sera donc peu significative.
+```{r}
+par(mfrow=c(2,1))
+ggplot(data, aes(x=yr_renovated, y=price))+
+  geom_point()+
+  geom_smooth(method="lm", color = 'red', size = 0.5)
+
+ggplot(data, aes(x=yr_renovated))+
+  geom_histogram(breaks=seq(1900, 2015, by=1), aes(fill=..count..))+
+  scale_fill_gradient("Count", low="green", high="red")
+```
+
+On peut quand même dire que le prix des maisons qui ont été rénovées à tendance à être plus élévé que pour les maisons non rénovées. On voit aussi que pour les maisons rénovées, il y a une forte concentration en 2014.
+
+## Statistiques descriptives axés sur les caractéristiques des maisons 
+
+```{r}
+df_S <- data.frame(
+  variable = c("bedroom","bathrooms",
+               "surface habitable","surface habitable (hors sous-sol)","Etage"),
+  Moyenne = c(mean(data$bedrooms),
+              mean(data$bathrooms),
+              mean(data$sqft_living),
+              mean(data$sqft_above),
+              mean(data$floors)),
+  médiane = c(quantile(data$bedrooms,0.5),
+              quantile(data$bathrooms,0.5),
+              quantile(data$sqft_living,0.5),
+              quantile(data$sqft_above,0.5),
+              quantile(data$floors,0.5)),
+  sd = c(sd(data$bedrooms),
+         sd(data$bathrooms),
+         sd(data$sqft_living),
+         sd(data$sqft_above),
+         sd(data$floors)),
+  min = c(min(data$bedrooms),
+          min(data$bathrooms),
+          min(data$sqft_living),
+          min(data$sqft_above),
+          min(data$floors)),
+  max = c(max(data$bedrooms),
+          max(data$bathrooms),
+          max(data$sqft_living),
+          max(data$sqft_above),
+          max(data$floors))
+)
+
+df_S
+```
+
+
+La variable **price** sur le prix de vente de la maison sera notre variable centrale
+
+```{r}
+summary(data$price)
+```
+
+```{r}
+ggplot(data, aes(x=price))+
+  geom_bar(color="firebrick1")+
+  ggtitle("Répartition du prix de vente des maisons")
+```
+
+On remarque que la répartition du prix de vente ne suit pas vraiment une distribution normale. De ce fait, nos futures régréssions seront du type log-niveau.
+
+Visualisons maintenant nos différentes variables liées aux caractéristiques des maisons :
+```{r}
+h <- ggplot(data, aes(x=bathrooms))+
+  geom_bar(stat="count", fill="cornflowerblue", color="black")+
+  theme_minimal()+
+  ggtitle("Répartition des salles de bain")+
+  scale_x_continuous(breaks = seq(0, 8, by = 1))+
+  labs(x="", y="effectifs")
+
+g <- ggplot(data, aes(x=bedrooms))+
+  geom_bar(stat="count", width=0.7, position="dodge", fill="midnightblue", color="black")+
+  theme_minimal()+
+  ggtitle("Répartition des chambres")+
+  labs(x="", y="effectifs")
+
+grid.arrange(h, g, nrow=1)
+
+summary(data$bedrooms)
+```
+On voit que la variable bathrooms n'est pas entière. Mais on décide de la laisser comme ca pour pas que l'arrondi à l'entier fausse nos résulats.
+
+La variable bedrooms comporte une valeur extrême (33 chambres, correspondant à l'observation 15871) ce qui pourrait être une valeur abérrante dans nos futurs modèles. On décide donc de la retirer.
+
+```{r}
+data <- data[-15871,]
+```
+
+
+```{r}
+d<-ggplot(data, aes(x=bedrooms))+
+  geom_bar(stat="count", width=0.7, position="dodge", fill="midnightblue", color="black")+
+  theme_minimal()+
+  ggtitle("Répartition des chambres ")+
+  labs(x="", y="effectifs")+
+  xlim(0,11)
+
+e<-ggplot(data, aes(x=floors))+
+  geom_bar(fill="salmon4", color="black")+
+  ggtitle("floors")+
+  labs(x="", y="effectifs")
+
+grid.arrange(d,e, nrow=1)
+```
+
+```{r}
+k <- ggplot(data, aes(x=grade))+
+  geom_bar(aes(fill=factor(grade)), color="black")+
+  ggtitle("Répartition de la variable grade")
+
+l <- ggplot(data, aes(x=grade, y=price))+
+  geom_point(aes(colour = factor(grade)))+
+  geom_boxplot(aes(colour=factor(grade)))+
+  stat_summary(fun.y="mean", geom="crossbar", size=0.4, width=0.75, color="red")+
+  ggtitle("Répartition des prix selon la variable grade")
+
+grid.arrange(k,l, nrow=1)
+```
+On ne sait pas à quoi correspond la variable **grade** mais quand on regarde le graphique des prix en fonction de cette variable, le prix augmente de façon exponentielle quand grade augmente.
+On regardera les corrélations de cette variable pour en déduire à quoi elle correspond.
+
+```{r}
+round(prop.table(table(data$condition)),3)
+
+o <- ggplot(data, aes(x=condition))+
+  geom_bar(aes(fill=factor(condition)))+
+  ggtitle("Répartition de la variable condition")
+
+p <- ggplot(data, aes(x=condition, y=price))+
+  geom_point(aes(colour=factor(condition)))+
+  geom_smooth(method="lm", color = 'red', size = 0.5)+
+  ggtitle("Répartition des prix selon la variable condition")
+
+grid.arrange(o,p, nrow=1)
+```
+
+On voit que l'augmentation de la variable **condition** n'a pas beaucoup d'effet sur le prix de plus que sa distribution n'est pas homogène, on ne va donc pas utiliser cette variable.
+
+On sait que la variable **sqft_living** sur la surface habitable correspond à : **sqft_above** + **sqft_basement** 
+
+Commençons par comparer les surfaces habitables initiales avec les surfaces habitables en 2015.
+
+```{r}
+a<-ggplot(data, aes(x=sqft_living))+
+  geom_bar(color="orange")+
+  xlim(0,6000)+
+  ylim(0,200)+
+  geom_vline(xintercept=mean(data$sqft_living), color="red")
+
+b<-ggplot(data, aes(x=sqft_living15))+
+  geom_bar(color="purple")+
+  xlim(0,6000)+
+  ylim(0,200)+
+  geom_vline(xintercept=mean(data$sqft_living15), color="red")
+
+grid.arrange(a,b, nrow=1, top="Répartition des surfaces habitables")
+```
+
+```{r}
+summary(data$sqft_lot)
+
+lot <- ggplot(data, aes(x=sqft_lot))+
+  geom_bar(color="blue")+
+  geom_vline(xintercept=mean(data$sqft_lot), color="red")
+
+lot15 <- ggplot(data, aes(x=sqft_lot15))+
+  geom_bar(color="cyan")+
+  geom_vline(xintercept=mean(data$sqft_lot15), color="red")
+
+grid.arrange(lot,lot15, nrow=1, top="Répartition des surfaces des terrains")
+```
+
+
+```{r}
+w<-ggplot(data, aes(x=sqft_lot, y=price))+
+  geom_point()+
+  geom_smooth(method="lm", color = 'red', size = 0.5)
+
+x<-ggplot(data, aes(x=sqft_basement, y=price))+
+  geom_point()+
+  geom_smooth(method="lm", color = 'red', size = 0.5)
+
+
+y<-ggplot(data, aes(x=sqft_above, y=price))+
+  geom_point()+
+  geom_smooth(method="lm", color = 'red', size = 0.5)
+
+z<-ggplot(data, aes(x=sqft_living, y=price))+
+  geom_point()+
+  geom_smooth(method="lm", color = 'red', size = 0.5)
+
+grid.arrange(w,x,y,z,nrow=2, top="Variables sur la surface en fonction du prix")
+```
+
+On distingue bien la relation positive entre les surfaces et le prix, la surface habitable a la pente la plus importante.
+
+```{r}
+i<-ggplot(data, aes(x=sqft_living15, y=price))+
+  geom_point()+
+  geom_smooth(method="lm", color = 'red', size = 0.5)
+
+j<-ggplot(data, aes(x=sqft_lot15, y=price))+
+  geom_point()+
+  geom_smooth(method="lm", color = 'red', size = 0.5)
+
+grid.arrange(i,j, nrow=1)
+```
+
+Mêmes interprétations en 2015 après rénovations.
+
+## Statistiques descriptives axés sur l'emplacement des maisons 
+
+D'apres les variables **zipcodes**, **long** et **lat**, l'étude que nous menons sur les maisons se trouve aux alentours de Seattle.
+
+```{r, fig.height = 3, fig.width = 5}
+include_graphics("Map_Seattle.png")
+```
+
+Part des maisons avec vu sur la mer :
+```{r}
+mean(data$waterfront)
+length(data$waterfront[data$waterfront==1])
+```
+Dans notre étude, 0.7% des maisons ont une vue sur la mer soit 163 maisons sur 21613.
+
+On choisit donc de ne pas utiliser la variable car le nombre de maisons ayant vue sur la mer est trop faible par rapport à la base de données.
+
+```{r}
+ggplot(data, aes(x=lat, y=price))+
+  geom_point(color = 'blue', size = 0.5) +
+  geom_smooth(method="lm", color = 'red', size = 0.5) + 
+  labs(x = 'latitude', y = 'price')
+```
+
+Après avoir vu le graphique ainsi que la map de Seattle, on remarque une corrélation positive entre le prix et le fait de s'approcher de la mer et de Seattle.
+
+```{r}
+ggplot(data, aes(x=long, y=price))+
+  geom_point(color = 'blue', size = 0.5) +
+  geom_smooth(method="lm", color = 'red', size = 0.5) + 
+  labs(x = 'longitude', y = 'price')
+```
+
+On remarque aucune tendance particulière du prix en fonction de la longitude, mise a part un pique vers -122.23 représentant probablement un quartier riche.
+
+
+```{r}
+ggplot(data, aes(x=view, y=price))+
+  geom_point(aes(colour = factor(view)))+
+  geom_boxplot(aes(colour=factor(view)))+
+  stat_summary(fun.y="mean", geom="crossbar", size=0.4, width=0.75, color="red")+
+  ggtitle("Répartition des prix selon la variable view")
+```
+
+On remarque ici que le prix à tendance à augmenter avec la variable **view**.
+
+## Etude des corrélations entre les variables
+
+Dans notre étude, nous allons essayer d'expliquer au maximum la variable **price** correspondant au prix de la maison. Pour cela, nous allons regarder les différentes corrélations et choisir nos variables explicatives en fonction dans nos régréssions.
+
+```{r}
+MatriceCor <- as.dist(round(cor(data),2)) 
+MatriceCor
+```
+
+```{r}
+ggcorr(data, name = "corr", label = TRUE, hjust = 1, label_size = 2.5, angle = -45, size = 3)
+```
+
+On voit que la variable **price** est :
+
+ * très corrélée avec la surface habitable **sqft_living** et la variable **grade** (R² = 0.7)
+ * bien corrélée avec la surface sans sous-sol **sfqt_above** et la surface habitable en 2015 **sqft_living15** (R² = 0.6) et le nombre de salles de bain **bathrooms** (R² = 0.5)
+ * moyennement corrélée avec la variable **view** (R² = 0.4), le nombre de chambres **bedrooms**, le nombre d'étages **floors** et la surface du sous-sol **sqft_basement** (R² = 0.3)
+ 
+Quant à la variable **grade**, elle est très corrélée avec les variables en rapport avec la surface habitable(**sqft_living**, **sqft_above**, **sqft_living15**) et le nombre de salles de bain, de chambres et d'étages (**bathrooms**, **bedrooms**, **floors**) qui ont aussi une grande incidence sur la surface habitable. 
+
+# **Régression linéaire 1**
+
+## Régréssion sur la variable **sqft_living**
+
+Dans notre base de données, on remarque beaucoup de variables sur la superficie et nottament sur la surface habitable.
+
+On a remarqué une forte corrélation entre la variable **sqft_living** et les variable **grade**, **sqft_above**, et **sqft_living15** dans notre graphique de corrélations au dessus. 
+
+On va donc chercher par notre première régréssion à voir si on peut rassembler ces variables et les exprimer sous une seule par la variable **sqft_living**.
+
+```{r}
+reg1 <- lm(sqft_living ~ grade + sqft_above + sqft_living15, data=data)
+```
+
+```{r}
+summary(reg1)
+```
+Le coefficient de détermination vaut **0.8066** c’est à dire que le modèle explique 80.66% de la variabilité de la surface habitable.
+On peut donc considérer que les variables **grade**, **sqft_above** et **sqft_living15** comme faisant parti de la variable **sqft_living**.
+
+On a donc choisit pour notre premiere régréssion les variables les plus corrélées a la variable prix afin d'expliquer au mieux la variabilité du prix.
+
+```{r}
+rlm_1 <- lm(log(price) ~ bedrooms + bathrooms + floors + view + lat + sqft_living, data = data)
+summary(rlm_1)
+```
+
+$price = \beta_0 + \beta_1 bedrooms + \beta_2 bathrooms + \beta_3 floors + \beta_4 view + \beta_5 lat + \beta_6 sftliving + \epsilon_i$
+
+```{r}
+ggplot(data, aes(x=bedrooms + bathrooms + floors + view + lat + sqft_living, y = log(price)))+
+  geom_point(color = 'blue', size = 0.5) +
+  geom_smooth(method="lm", color = 'red', size = 0.5) + 
+  labs(x = 'bedrooms + bathrooms + floors + view + lat + sqft_living', y = 'log(price)')+
+  ggtitle("Régression linéaire 1")
+  
+```
+
+## Analyse de la régréssion linéaire 1
+
+### Analyse des coefficients
+
+<span style="color:red">**p-value = 2e-16 < alpha = 0.001**</span>
+
+On rejette H0, ce qui signifie que les coefficients associés aux variables **living**, **bedrooms**, **bathrooms**, **floors**, **view** et **lat** sont significativement différents de 0. 
+
+* Une augmentation de la variable living d'une unité augmente le prix de 0.03366%.
+
+* Une augmentation d'une chambre diminue le prix de 2.913%.
+
+* Une augmentation d'une salle de bain augmente respectivement le prix de 4.524%.
+
+* Une augmentation d'un étage augmente le prix de 5.209%.
+
+* Une augmentation de la variable view d'une unité augmente le prix de 11.48%.
+
+* Une augmentation de 0.01 unité de latitude augmente le prix de 1.568%.
+
+Le fait que le prix diminue quand il y a une chambre supplémentaire semble incohérent. On suppose donc que la variable **sqft_living** est trop corrélé avec **bedrooms** et **bathrooms** (0.7 et 0.6), ce qui affecte alors l'impact qu'aurait une chambre ou une salle de bain en plus sur le prix.
+De ce fait nous allons donc séparer la variable living des variables bedrooms et bathrooms durant nos prochaines régréssions.
+
+# **Régréssion linéaire 2**
+
+```{r}
+rlm_2 <- lm(log(price) ~ bedrooms + bathrooms + floors + view + lat, data = data)
+summary(rlm_2)
+```
+
+$price = \beta_0 + \beta_1 bedrooms + \beta_2 bathrooms + \beta_3 floors + \beta_4 view + \beta_5 lat + \epsilon_i$
+
+```{r}
+ggplot(data, aes(x=bedrooms + bathrooms + floors + view + lat, y = log(price)))+
+  geom_point(color = 'blue', size = 0.5) +
+  geom_smooth(method="lm", color = 'red', size = 0.5) + 
+  labs(x = 'bedrooms + bathrooms + floors + view + lat', y = 'log(price)')+
+  ggtitle("Régression linéaire 2")
+```
+
+## Analyse de la régréssion linéaire 2
+
+### Analyse des coefficients
+
+<span style="color:red">**p-value = 2e-16 < alpha = 0.001**</span>
+
+On rejette H0, ce qui signifie que les coefficients associés aux variables bedrooms, bathrooms, floors, view et lat sont significativement différents de 0. 
+
+* Une augmentation d'une chambre ou d'une salle de bain augmente respectivement le prix de 6.3844% et 27.6221%.
+
+* Une augmentation d'un étage augmente le prix de 5.7771%.
+
+* Une augmentation de la variable view d'une unité augmente le prix de 17.681%.
+
+* Une augmentation de 0.01 unité de latitude augmente le prix de 1.65673% 
+
+### R²
+
+Le coefficient de détermination vaut **0.5644** c'est à dire que le modèle explique 56.44% de la variabilité du prix des maisons.
+
+### Significativité globale du modèle
+
+On s'intéresse ici à la statistique de Fisher pour déterminer la significativité du modèle :
+
+<span style="color:red">**p-value < 2.2e-16 < alpha = 0.01**</span>
+
+On rejette H0, ce qui signifie que le modèle est globalement significatif.
+
+### Les résidus
+
+Pour que cette régression soit admise, il faut aussi que les résidus respectent certaines conditions.
+Ils doivent être identiquement distribués de manière aléatoire et donc suivre une loi normale.
+Ils doivent être homoscédastiques c'est-à-dire que la variance des résidus doit être constante.
+
+```{r}
+par(mfrow=c(2,2))
+plot(rlm_2)
+```
+
+- *Normalité*
+
+Pour tester la normalité des résidus, on ne peut pas effectuer de **Shapiro test** car notre nombre d'observations dépasse 5000.
+On regarde donc le graphique *Normal Q_Q*
+
+```{r}
+par(mfrow=c(1,2))
+plot(rlm_2,2)
+plot(density(residuals(rlm_2)))
+```
+
+On voit que la distibution des résidus suit approximativement une loi normale. De plus, la densité est plutôt gausiennne, alors on accepte l'hyphothèse de normalité des résidus.
+
+- *Homoscédasticité*
+
+On effectue un test de Breusch-Pagan :
+
+```{r}
+bptest(rlm_2)
+```
+
+<span style="color:red">**p-value < 2.2e-16 < alpha = 0.01**</span>
+
+On rejette donc H0, l'hypothèse d'homoscédasticité, ce qui veut dire que la variance des résidus n'est pas constantes et sont donc hétéroscédastiques.
+
+```{r}
+plot(rlm_2,3)
+```
+
+De plus, le graphique *Scale-Location* nous montre une certaine tendance, la courbe de tendance n'est pas horizontale.
+
+- *Linéarité*
+
+```{r}
+plot(rlm_2,1)
+```
+
+Le graphique *Residuals vs Fitted* ne montre pas de regroupement particulier des résidus et la coubre de tendance est horizontale.
+
+On peut donc dire que les résidus sont distribués aléatoirements et qu'ils sont donc indépendants.
+L'hypothèse de linéarité est donc acceptée.
+
+- *Valeurs aberrantes*
+
+```{r}
+par(mfrow=c(1,2))
+plot(rlm_2, 5)
+plot(rlm_2, 4)
+```
+
+D'après le graphique *Residuals vs Leverage*, nous pouvons conclure qu'il n'y a pas de valeurs aberrantes car la courbe de tendance est proche de 0.
+
+De plus, la distance de Cook n'excède jamais 1 même si il y a des valeurs qui se distinguent ce qui signifie que ces valeurs n'ont pas d'influence. 
+
+### Conclusion
+
+Nous pouvons conclure que les résultats du modèle 2 ne peuvent pas être acceptés puisque l'hypothèse d'homoscédasticité est rejetée.
+
+ 
+# **Régréssion linéaire 3**
+
+Sur cette troisième régréssion, nous avons donc remplacé les nombres de chambres, salles de bains et d'étages par la surface habitable de la maison représentée par les variables **sqft_above** et **sqft_basement**. Nous verrons ainsi si ce modèle convient mieux pour expliquer la variable prix.
+
+```{r}
+rlm_3 <- lm(log(price) ~ sqft_living + view + lat, data = data)
+summary(rlm_3)
+```
+
+$price = \beta_0 + \beta_1 sqftliving+ \beta_2 view + \beta_3 lat + \epsilon_i$
+
+```{r}
+ggplot(data, aes(x=sqft_living + view + lat, y = log(price)))+
+  geom_point(color = 'blue', size = 0.5) +
+  geom_smooth(method="lm", color = 'red', size = 0.5) + 
+  labs(x = 'sqft_living + view + lat', y = 'log(price)')+
+  ggtitle("Régression linéaire 3")
+```
+
+## Analyse de la régréssion linéaire 3
+
+### Analyse des coefficients
+
+<span style="color:red">**p-value = 2e-16 < alpha = 0.001**</span>
+
+On rejette H0, ce qui signifie que les coefficients associés aux variables living, view et lat sont significativement différents de 0. 
+
+* Une augmentation de la variable living d'une unité augmente le prix de 0.03592%.
+
+* Une augmentation de la variable view d'une unité augmente le prix de 11.39%.
+
+* Une augmentation de 0.01 unité de latitude augmente le prix de 1.57%
+
+### R²
+
+Le coefficient de détermination vaut **0.6795** c'est à dire que le modèle explique 67.95% de la variabilité du prix des maisons.
+
+### Significativité globale du modèle
+
+On s'intéresse ici à la statistique de Fisher pour déterminer la significativité du modèle :
+
+<span style="color:red">**p-value < 2.2e-16 < alpha = 0.01**</span>
+
+On rejette H0, ce qui signifie que le modèle est globalement significatif.
+
+### Les résidus
+
+Pour que cette régression soit admise, il faut aussi que les résidus respectent certaines conditions.
+Ils doivent être identiquement distribués de manière aléatoire et donc suivre une loi normale.
+Ils doivent être homoscédastiques c'est-à-dire que la variance des résidus doit être constante.
+
+```{r}
+par(mfrow=c(2,2))
+plot(rlm_3)
+```
+
+- *Normalité*
+
+```{r}
+par(mfrow=c(1,2))
+plot(rlm_3, 2)
+plot(density(residuals(rlm_3)))
+```
+On voit que la distibution des résidus suit approximativement une loi normale. De plus, la densité est plutôt gausiennne et centrée sur 0, alors on accepte l'hyphothèse de normalité des résidus.
+
+- *Homoscédasticité*
+
+On effectue un test de Breusch-Pagan :
+
+```{r}
+bptest(rlm_3)
+```
+<span style="color:red">**p-value < 2.2e-16 < alpha = 0.01**</span>
+
+On rejette donc H0, l'hypothèse d'homoscédasticité, ce qui veut dire que la variance des résidus n'est pas constantes et sont donc hétéroscédastiques.
+
+```{r}
+plot(rlm_3, 3)
+```
+De plus, le graphique *Scale-Location* nous montre une certaine tendance, la droite rouge n'est pas horizontale.
+
+- *linéarité*
+
+```{r}
+plot(rlm_3, 1)
+```
+D'apres le graphique *Residuals vs Fitted*, les résidus ont l'air de se regrouper vers le bas du graphique et la courbe de tendance n'est pas horizontale. On en déduit donc que les résidus ne sont pas distribués aléatoirement, ils ne sont donc pa indépendants.
+L'hypothèse de linéarité est donc rejetée.
+
+- *Valeurs aberantes*
+
+```{r}
+par(mfrow=c(1,2))
+plot(rlm_3, 4)
+plot(rlm_3, 5)
+```
+D'après le graphique *Residuals vs Leverage*, nous pouvons conclure qu'il n'y a pas de valeurs abérrantes car la courbe de tendance est proche de 0.
+
+De plus, la distance de Cook n'excède jamais 1 même si il y a des valeurs qui se distinguent ce qui signifie que ces valeurs n'ont pas d'influence.
+
+### Conclusion
+
+Cette régréssion ne peut pas être accepté bien que son R² soit de **0.68**, les hypothèses d'homoscédasticité et de linéarité ne sont pas vérifiées.
+
+# **Régression linéaire 4**
+
+Pour cette quatrième et dernière régression, nous avons voulu nous intéresser à la variable **grade** qui est l'une des plus corrélée avec le prix. Le prix étant exponentiel avec cette variable.
+
+Après avoir cherché divers moyens pour améliorer notre modèle, nous avons décidé de séparer la variable **grade** en variables dummy. 
+```{r}
+data$grade3 <- as.numeric(data$grade==3)
+data$grade4 <- as.numeric(data$grade==4)
+data$grade5 <- as.numeric(data$grade==5)
+data$grade6 <- as.numeric(data$grade==6)
+data$grade7 <- as.numeric(data$grade==7)
+data$grade8 <- as.numeric(data$grade==8)
+data$grade9 <- as.numeric(data$grade==9)
+data$grade10 <- as.numeric(data$grade==10)
+data$grade11 <- as.numeric(data$grade==11)
+data$grade12 <- as.numeric(data$grade==12)
+data$grade13 <- as.numeric(data$grade==13)
+```
+
+
+```{r}
+rlm_final <- lm(log(price) ~ grade6 + grade7 + grade8 + grade9 + grade10 + grade11 + grade12 + grade13 + bathrooms + view, data=data)
+summary(rlm_final)
+```
+
+$price = \beta_0 + \beta_1 grade6 + \beta_2 grade7 + \beta_3 grade8 + \beta_4 grade9 + \beta_5 grade10 + \beta_6 grade11 + \beta_7 grade12 + \beta_8 grade13 + \beta_9 bathrooms + \beta_10 view+ \epsilon_i$
+
+On a choisi pour cette régréssion d'enlever les grade 3 a 5 du fait qu'elles ne sont pas très nombreuses et qu'elles ne sont pas très significatives vis a vis du prix.
+
+```{r}
+ggplot(data, aes(x=grade6 + grade7 + grade8 + grade9 + grade10 + grade11 +
+                   grade12 + grade13 + bathrooms + view, y = log(price)))+
+  geom_point(color = 'blue', size = 0.5) +
+  geom_smooth(method="lm", color = 'red', size = 0.5) + 
+  labs(x = 'grade[6:13] + view + bathrooms', y = 'log(price)')+
+  ggtitle("Régression linéaire 4")
+```
+
+## Analyse de la régression linéaire 4
+
+### Analyse des coefficients
+
+<span style="color:red">**p-value = 2e-16 < alpha = 0.001**</span>
+
+On rejette H0, ce qui signifie que les coefficients associés aux variables **grade6** à **grade13**, **view** et **bathrooms** sont significativement différents de 0. 
+
+* Si on obtient grade6=1 , alors le prix augmente de 22.87%
+  + Pour grade7 -->  46.20%
+  + Pour grade8 -->  69.22%
+  + Pour grade9 -->  98.98%
+  + Pour grade10 -->  124.40%
+  + Pour grade11 -->  147.79%
+  + Pour grade12 -->  173.66%
+  + Pour grade13 -->  211.72%
+
+* Une chambre de plus augmente le prix de 9.97%.
+
+* Une augmentation de 1 unité de view augmente le prix de 12.04%.
+
+On voit clairement la tendance exponentielle de la variabilité du prix avec la variable **grade**.
+
+### R²
+
+Le coefficient de détermination vaut **0.5385** c'est à dire que le modèle explique 53.85% de la variabilité du prix des maisons.
+
+### Significativité globale du modèle
+
+On s'intéresse ici à la statistique de Fisher pour déterminer la significativité du modèle :
+
+<span style="color:red">**p-value < 2.2e-16 < alpha = 0.01**</span>
+
+On rejette H0, ce qui signifie que le modèle est globalement significatif.
+
+### Les résidus 
+
+```{r}
+par(mfrow=c(2,2))
+plot(rlm_final)
+```
+
+- *Normalité*
+
+```{r}
+plot(rlm_final,2)
+```
+
+On voit bien que les résidus suivent une distribution normale.
+
+- *Homoscédasticité*
+
+On effectue un test de Breusch-Pagan :
+
+```{r}
+bptest(rlm_final)
+```
+<span style="color:red">**p-value < 2.2e-16 < alpha = 0.01**</span>
+
+On rejette donc H0, l’hypothèse d’homoscédasticité, ce qui veut dire que la variance des résidus n’est pas constantes et sont donc hétéroscédastiques.
+
+```{r}
+plot(rlm_final,3)
+```
+
+La tendance du graphique *Scale-Location* reste cependant plus acceptable que dans nos autres régréssions, la courbe de tendance est presque horizontale.
+
+- *Linéarité*
+
+```{r}
+plot(rlm_final, 1)
+```
+
+Le graphique *Residuals vs Fitted* montre quelques regroupements des résidus, mais ces groupements sont dus au caractère discret de la variable **grade**. On voit que la courbe de tendance est une droite horizontale.
+
+Alors on accepte tout de même l'hypothèse de linéarité comme quoi les résidus sont distribués de manière aléatoire et qu'ils sont indépendants.
+
+- *Valeurs abérrantes*
+
+```{r}
+par(mfrow=c(1,2))
+plot(rlm_final, 5)
+plot(rlm_final, 4)
+```
+D’après le graphique *Residuals vs Leverage*, nous pouvons conclure qu’il n’y a pas de valeurs aberrantes car la courbe de tendance est proche de 0.
+
+De plus, la distance de Cook n’excède jamais 1 même si il y a des valeurs qui se distinguent ce qui signifie que ces valeurs n’ont pas d’influence.
+
+### Conclusion
+
+On en conclut que les résultats de notre quatrième régression ne peuvent pas être acceptés car l'hypothèse d'homoscédasticité est rejetée.
+
+Notre modèle reste celui qui explique au mieux la variabilité du prix tout en tenant compte de la validité des hypothèses de normalité et linéarité des résidus.
+
+# **Conclusion de l'étude**
+
+Pour conclure, nos différentes expérimentations pour expliquer au mieux la variabilité du prix de vente des maisons ne peuvent être retenues en raison des hypothèses sur les résidus.
+
+Elles sont tout de même de plus en plus acceptables au fil de nos régréssions. Avec le dernier modèle on arrive à une quasi-parfaite normalité des résidus mais le test de Breusch-Pagan rejette l'homoscédasticité même si la tendance du graphique *Scale-Location* tend à être horizontale.
+
+Les résultats de nos modèles ne peuvent donc être acceptés malgré des R² assez élevés et de nombreuses variables correlées avec le prix. 
+
+
